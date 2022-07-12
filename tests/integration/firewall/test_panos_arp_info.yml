@@ -1,0 +1,25 @@
+---
+- include_tasks: 'reset.yml'
+
+- name: test_panos_arp_info - no_parameters
+  panos_arp_info:
+    provider: '{{ provider }}'
+  register: test_no_paraters
+
+- name: Ensure no_parameters results present
+  assert:
+    that:
+        - test_no_paraters.results
+
+- name: test_panos_arp_info - all_parameters
+  panos_arp_info:
+    provider: '{{ provider }}'
+    ip_only: true
+    interface: 'ethernet1/1'
+    status: 'complete'
+  register: test_all_parameters
+
+- name: Ensure all_parameters results present
+  assert:
+    that:
+        - test_all_parameters.results
