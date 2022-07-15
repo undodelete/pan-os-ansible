@@ -1,20 +1,19 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# Copyright (C) 2022 eir evo
-
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#  Copyright 2022 Palo Alto Networks, Inc
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
 
 from __future__ import absolute_import, division, print_function
 
@@ -38,13 +37,6 @@ notes:
 extends_documentation_fragment:
     - paloaltonetworks.panos.fragments.transitional_provider
 options:
-    ip_only:
-        description:
-            - If set to true, an array of IPs will be returned
-            - The default of false will result a dictionary with full information for each record
-        type: bool
-        default: false
-        required: false
     interface:
         description:
             - The name of the interface to target a specific ARP table
@@ -62,41 +54,26 @@ options:
 """
 
 EXAMPLES = """
-- name: Getting ARP details from all interfaces
+- name: Getting ARP table
   panos_arp_info:
     provider: '{{ provider }}'
-  register: arp_int_full
+  register: arp_all
 
-- name: Getting ARP IPs from all interfaces
-  panos_arp_info:
-    provider: '{{ provider }}'
-    ip_only: true
-  register: arp_all_ip
-
-- name: Getting ARP details from a specific interface
+- name: Getting ARP table from a specific interface
   panos_arp_info:
     provider: '{{ provider }}'
     interface: 'ethernet1/1'
-  register: arp_int_full
+  register: arp_int
 
-- name: Getting ARP IPs from a specific interface with status complete
+- name: Getting ARP table entries with status complete
   panos_arp_info:
     provider: '{{ provider }}'
-    ip_only: true
-    interface: 'ethernet1/1'
     status: 'complete'
-  register: arp_int_ip
+  register: arp_complete
 """
 
 RETURN = """
-ansible_module_results_arp_ip_only:
-    description: IP Address from ARP table.
-    returned: When the ip_only attribute is set to true
-    type: list
-    sample:
-        - "172.26.1.1"
-        - "172.26.1.2"
-ansible_module_results_arp_detail:
+ansible_module_results_arp_table:
     description: Network interface information.
     returned: When the ip_only attribute is set to true
     type: dict
@@ -120,7 +97,7 @@ ansible_module_results_arp_detail:
         status:
             description: ARP record status.
             type: str
-            sample: "c"
+            sample: "  c  "
         ttl:
             description: ARP record time to live (Seconds).
             type: int
@@ -144,10 +121,10 @@ def convert_arp_status(status):
 
     if status:
         status_dict = {
-            "static": "s",
-            "complete": "c",
-            "expiring": "e",
-            "incomplete": "i"
+            "static": "  s  ",
+            "complete": "  c  ",
+            "expiring": "  e  ",
+            "incomplete": "  i  "
         }
         status = status_dict.get(status)
 
@@ -157,55 +134,36 @@ def convert_arp_status(status):
 def main():
     helper = get_connection(
         with_classic_provider_spec=True,
-        panorama_error="Panorama is not supported for this module.",
         argument_spec=dict(
-            ip_only=dict(type='bool', required=False, default=False),
-            interface=dict(type='str', required=False, default='all'),
-            status=dict(type='str', required=False, choices=['static', 'complete', 'expiring', 'incomplete'])
+            interface=dict(type='str', default='all'),
+            status=dict(type='str', choices=['static', 'complete', 'expiring', 'incomplete'])
         ),
     )
 
     module = AnsibleModule(
         argument_spec=helper.argument_spec,
-        supports_check_mode=False,
+        supports_check_mode=True,
         required_one_of=helper.required_one_of,
     )
 
     parent = helper.get_pandevice_parent(module)
 
-    ip_only = module.params["ip_only"]
     interface = module.params["interface"]
     status = module.params["status"]
 
     api_str = "<show><arp><entry name='{0}'/></arp></show>".format(interface)
-
     try:
-        arp_elements = parent.op(api_str, cmd_xml=False).findall("./result/entries/entry")
+        entries = parent.op(api_str, cmd_xml=False).findall("./result/entries/entry")
     except PanDeviceError as e:
         module.fail_json(msg="Failed to get ARP response: {0}".format(e))
 
     status = convert_arp_status(status)
-    arp_entries = []
-    for arp_element in arp_elements:
+    arp_table = [
+        {arp.tag: arp.text for arp in entry}
+        for entry in entries if status == entry[0].text or status is None
+    ]
 
-        arp_status = arp_element.find("./status").text.strip()
-        if arp_status != status and status is not None:
-            continue
-
-        if ip_only:
-            arp = arp_element.find("./ip").text
-        else:
-            arp = {
-                "ip": arp_element.find("./ip").text,
-                "mac": arp_element.find("./mac").text,
-                "interface": arp_element.find("./interface").text,
-                "port": arp_element.find("./port").text,
-                "status": arp_element.find("./status").text.strip(),
-                "ttl": int(arp_element.find("./ttl").text)
-            }
-        arp_entries.append(arp)
-
-    module.exit_json(changed=False, results=arp_entries)
+    module.exit_json(changed=False, results=arp_table)
 
 
 if __name__ == "__main__":

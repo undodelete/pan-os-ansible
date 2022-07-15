@@ -1,9 +1,24 @@
 ---
 - include_tasks: 'reset.yml'
 
+- name: Configure static ARP record for tests
+  panos_type_cmd:
+    provider: '{{ device }}'
+    xpath: |
+      /config/devices/entry[@name='localhost.localdomain']
+      /network/interface/ethernet/entry[@name='ethernet1/1']/layer3/arp
+    element: |
+      <entry name="1.1.1.1">
+        <hw-address>00:00:00:00:00:01</hw-address>
+      </entry>
+
+- name: Commit to add static ARP
+  panos_commit_firewall:
+    provider: '{{ device }}'
+
 - name: test_panos_arp_info - no_parameters
   panos_arp_info:
-    provider: '{{ provider }}'
+    provider: '{{ device }}'
   register: test_no_paraters
 
 - name: Ensure no_parameters results present
@@ -13,10 +28,9 @@
 
 - name: test_panos_arp_info - all_parameters
   panos_arp_info:
-    provider: '{{ provider }}'
-    ip_only: true
+    provider: '{{ device }}'
     interface: 'ethernet1/1'
-    status: 'complete'
+    status: 'static'
   register: test_all_parameters
 
 - name: Ensure all_parameters results present
